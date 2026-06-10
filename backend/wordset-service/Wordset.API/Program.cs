@@ -1,6 +1,8 @@
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.EntityFrameworkCore;
 using Wordset.Application.Services;
 using Wordset.API.Endpoints;
+using Wordset.API.GrpcServices;
 using Wordset.Infrastructure;
 using Wordset.Infrastructure.Data;
 
@@ -11,7 +13,18 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
 
 builder.Services.AddInfrastructure(connectionString);
 builder.Services.AddScoped<WordsetService>();
+builder.Services.AddScoped<WordService>();
+builder.Services.AddScoped<WordGameService>();
 builder.Services.AddOpenApi();
+builder.Services.AddGrpc();
+
+builder.WebHost.ConfigureKestrel(options =>
+{
+    // REST (HTTP/1.1 + HTTP/2)
+    options.ListenAnyIP(8080);
+    // gRPC (HTTP/2 cleartext — internal service mesh only)
+    options.ListenAnyIP(8090, listenOptions => listenOptions.Protocols = HttpProtocols.Http2);
+});
 
 var app = builder.Build();
 
@@ -27,6 +40,7 @@ if (app.Environment.IsDevelopment())
 
 app.MapWordsetEndpoints();
 app.MapWordEndpoints();
+app.MapGrpcService<WordsetGameGrpcService>();
 
 app.Run();
 

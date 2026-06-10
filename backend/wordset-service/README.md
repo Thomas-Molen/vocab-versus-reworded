@@ -1,6 +1,6 @@
 # wordset-service
 
-REST API for managing community wordlists and validating submitted words. Backed by PostgreSQL with `pg_trgm` for fuzzy matching and LIST partitioning for per-wordset isolation.
+REST and gRPC API for managing community wordlists. Backed by PostgreSQL with `pg_trgm` for fuzzy matching and LIST partitioning for per-wordset isolation. Exposes a gRPC service for gameplay hot-path operations (word validation, challenge letter generation).
 
 ## Prerequisites
 
@@ -44,7 +44,7 @@ dotnet test backend/wordset-service/Wordset.sln --filter "FullyQualifiedName~Som
 dotnet build backend/wordset-service/Wordset.sln
 ```
 
-Default port: `8080` (mapped to `5001` in docker-compose). Requires a running PostgreSQL instance — see [Database Setup](#database-setup) above.
+Default REST port: `8080` (mapped to `5001` in docker-compose). gRPC port: `8090` (HTTP/2 cleartext, internal only). Requires a running PostgreSQL instance — see [Database Setup](#database-setup) above.
 
 ## Debugging in VS Code
 
@@ -74,8 +74,19 @@ Full request/response schemas and parameter details are documented in the OpenAP
 | Method | Path | Description |
 |--------|------|-------------|
 | `DELETE` | `/wordsets/{shareCode}` | Delete wordset and its word partition |
-| `POST` | `/wordsets/{shareCode}/validate` | Validate a word against the wordset |
-| `GET` | `/wordsets/{shareCode}/letter-combinations` | All valid playable letter combinations (1–3 chars) |
+
+## gRPC Service
+
+The `WordsetGameService` gRPC service handles gameplay hot-path operations. It runs on a separate port (HTTP/2) and is called by the game-engine during active rounds.
+
+Proto file: `Wordset.API/Protos/wordset_game.proto`
+
+| RPC | Request fields | Response fields | Description |
+|-----|---------------|-----------------|-------------|
+| `GetChallenge` | `share_code`, `letter_count` | `letters` | Returns `letter_count` shuffled distinct characters sampled from a random word — guaranteed solvable, spaces/hyphens excluded |
+| `ValidateWord` | `share_code`, `word`, `fuzzy_tolerance` | `valid`, `matched_word` | Validates a word; `fuzzy_tolerance = 0` for exact match, `>0` for Levenshtein distance; spaces/hyphens stripped before comparison |
+
+See [ADR-006](../../ADRs/ADR-006-grpc-gameplay-hotpath.md) for the full rationale.
 
 ## Database Schema
 

@@ -11,7 +11,7 @@ vocab-versus-reworded/            ← monorepo root
 ├── ADRs/                         ← Architecture Decision Records (read these first for decisions)
 ├── backend/
 │   ├── game-engine/              ← .NET 10 ASP.NET Core: SignalR GameHub + REST game creation
-│   └── wordset-service/          ← .NET 10 ASP.NET Core: wordlist CRUD + word validation REST API
+│   └── wordset-service/          ← .NET 10 ASP.NET Core: wordlist CRUD (REST) + gameplay hot-path (gRPC)
 ├── frontend/                     ← Vite + React 18 + TypeScript SPA
 └── docker-compose.yml            ← Full local stack
 ```
@@ -54,14 +54,15 @@ npm test -- SomeComponent  # run a single test file
   - `GameInstanceCache`: `gameId → GameInstance`
   - `SessionTokenCache`: `sessionToken → PlayerSession`
 - Each `GameInstance` owns a `System.Threading.Channels.Channel<GameEvent>` and runs a **dedicated background Task** as its event processor. SignalR handlers only enqueue events — they never mutate game state directly. This gives each game instance single-threaded sequential processing without blocking the hub.
-- Calls `wordset-service` via a typed `HttpClient` to validate submitted words
+- Calls `wordset-service` via a **typed gRPC client** for gameplay hot-path operations (word validation, challenge letter generation). REST `HttpClient` is used only for management operations (wordset lookup at game creation).
 
-**`backend/wordset-service`** — wordlist management and word validation
-- REST API for wordset CRUD and word validation
+**`backend/wordset-service`** — wordlist management and gameplay hot-path operations
+- **REST API** (port 8080) for wordset CRUD and word list management
+- **gRPC service** `WordsetGameService` (port 8090, HTTP/2) for gameplay hot-path: `ValidateWord` and `GetChallenge`
 - PostgreSQL backend with `pg_trgm` extension
 - The `words` table is **LIST-partitioned by `wordset_id`**: each wordset has its own physical partition with its own `pg_trgm` GiST index. Creating a wordset provisions a new partition; deleting drops it.
 - `frequency_rank` (int, nullable) is a static import-time column — never written during gameplay
-- **Word management uses full-replacement semantics**: `PUT /wordsets/{id}/words` replaces the entire word list atomically. There are no separate add/remove endpoints. Words are normalised to lowercase and deduplicated. Existing `frequency_rank` values are preserved for surviving words; new words receive `frequency_rank = 0`. The endpoint uses Npgsql binary COPY for O(n) performance with large batches (thousands of words).
+- **Word management uses full-replacement semantics**: `PUT /wordsets/{shareCode}/words` replaces the entire word list atomically. There are no separate add/remove endpoints. Words are normalised to lowercase and deduplicated. Existing `frequency_rank` values are preserved for surviving words; new words receive `frequency_rank = 0`. The endpoint uses Npgsql binary COPY for O(n) performance with large batches (thousands of words).
 
 **`frontend`** — React SPA
 - React Router v6 routes: `/` (home/create), `/lobby/:gameId`, `/game/:gameId`
@@ -107,8 +108,16 @@ All significant architectural decisions are documented in `ADRs/`. Before making
 - TypeScript interfaces for all SignalR event payloads should mirror the server-side response models
 
 ### REST API Documentation (backend)
-- **OpenAPI is the authoritative source for endpoint details.** Document endpoints directly in the endpoint registration using `.WithSummary("...")`, `.WithDescription("...")`, and `[Description("...")]` (from `System.ComponentModel`) on handler parameters. The OpenAPI spec is served at `/openapi/v1.json` when the service is running.
+- **OpenAPI is the authoritative source for endpoint details.** Document endpoints directly in the endpoint registration using `.WithSummary("...")`, `.WithDescription("...")`, and `[Description("...")]` (from `System.ComponentModel`) on handler parameters. Keep descriptions short and free of values that may change (e.g. don't hardcode min/max page sizes). The OpenAPI spec is served at `/openapi/v1.json` when the service is running.
 - **README endpoint tables are quick-reference only** — list the method, path, description, and body/query params in one row. Do not add prose descriptions of individual endpoints to the README.
+
+### gRPC (wordset-service gameplay hot-path)
+- Hot-path game operations (word validation and challenge letter generation) are exposed via gRPC, not REST.
+- Proto file lives at `Wordset.API/Protos/wordset_game.proto`. Set `<Protobuf Include="Protos/wordset_game.proto" GrpcServices="Server" />` in `Wordset.API.csproj` and `GrpcServices="Client"` in the game-engine project.
+- The gRPC service class (`WordsetGameGrpcService`) maps messages to application-layer service calls only — no business logic in the gRPC class.
+- gRPC inputs use `share_code` (the external identifier) — consistent with the REST API convention.
+- Return gRPC status codes (`NOT_FOUND`, `INVALID_ARGUMENT`) for error cases; do not let exceptions propagate.
+- See [ADR-006](../ADRs/ADR-006-grpc-gameplay-hotpath.md) for the full rationale and protocol contract.
 
 ### Database (wordset-service)
 - EF Core for standard CRUD; raw SQL for partition management (CREATE/DROP TABLE)
@@ -127,6 +136,7 @@ All shell commands in READMEs assume the working directory is the **repo root**.
 | Change type | Update |
 |-------------|--------|
 | REST endpoint added/removed/renamed | Service `README.md` endpoint table + OpenAPI annotations in the endpoint file |
+| gRPC RPC added/removed/renamed | Service `README.md` gRPC table + `Wordset.API/Protos/wordset_game.proto` |
 | SignalR hub method or server event changed | `backend/game-engine/README.md` hub tables |
 | New configuration key or environment variable | Service `README.md` configuration table |
 | Database schema change | `backend/wordset-service/README.md` schema block |

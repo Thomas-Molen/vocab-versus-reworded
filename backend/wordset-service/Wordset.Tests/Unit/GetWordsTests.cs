@@ -29,7 +29,7 @@ public class GetWordsTests
     public async Task GetWordsAsync_ThrowsWordsetNotFoundException_WhenWordsetDoesNotExist()
     {
         var repo = new StubWordsetRepository();
-        var service = new WordsetService(repo);
+        var service = new WordService(repo);
 
         await Assert.ThrowsAsync<WordsetNotFoundException>(
             () => service.GetWordsAsync("ZZZZZZ", null, null));
@@ -40,7 +40,7 @@ public class GetWordsTests
     {
         var wordset = MakeWordset();
         var repo = RepoWithWords(wordset, "apple", "banana", "cherry", "date", "elderberry");
-        var service = new WordsetService(repo);
+        var service = new WordService(repo);
 
         var result = await service.GetWordsAsync(ShareCode, null, 3);
 
@@ -53,7 +53,7 @@ public class GetWordsTests
     {
         var wordset = MakeWordset();
         var repo = RepoWithWords(wordset, "apple", "banana", "cherry", "date", "elderberry");
-        var service = new WordsetService(repo);
+        var service = new WordService(repo);
 
         var firstPage = await service.GetWordsAsync(ShareCode, null, 3);
         var secondPage = await service.GetWordsAsync(ShareCode, firstPage.NextCursor, 3);
@@ -67,7 +67,7 @@ public class GetWordsTests
     {
         var wordset = MakeWordset();
         var repo = RepoWithWords(wordset, "apple", "banana");
-        var service = new WordsetService(repo);
+        var service = new WordService(repo);
 
         var result = await service.GetWordsAsync(ShareCode, null, 50);
 
@@ -80,7 +80,7 @@ public class GetWordsTests
     {
         var wordset = MakeWordset();
         var repo = RepoWithWords(wordset, "cherry", "apple", "banana");
-        var service = new WordsetService(repo);
+        var service = new WordService(repo);
 
         var result = await service.GetWordsAsync(ShareCode, null, 10);
 
@@ -92,7 +92,7 @@ public class GetWordsTests
     {
         var wordset = MakeWordset();
         var repo = new StubWordsetRepository(existing: wordset);
-        var service = new WordsetService(repo);
+        var service = new WordService(repo);
 
         var ex = await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
             () => service.GetWordsAsync(ShareCode, null, 0));
@@ -105,7 +105,7 @@ public class GetWordsTests
     {
         var wordset = MakeWordset();
         var repo = new StubWordsetRepository(existing: wordset);
-        var service = new WordsetService(repo);
+        var service = new WordService(repo);
 
         var ex = await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
             () => service.GetWordsAsync(ShareCode, null, -1));
@@ -118,10 +118,10 @@ public class GetWordsTests
     {
         var wordset = MakeWordset();
         var repo = new StubWordsetRepository(existing: wordset);
-        var service = new WordsetService(repo);
+        var service = new WordService(repo);
 
         var ex = await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
-            () => service.GetWordsAsync(ShareCode, null, WordsetService.MaxPageSize + 1));
+            () => service.GetWordsAsync(ShareCode, null, WordService.MaxPageSize + 1));
 
         Assert.Equal("pageSize", ex.ParamName);
     }
@@ -132,11 +132,11 @@ public class GetWordsTests
         var wordset = MakeWordset();
         var words = Enumerable.Range(1, 100).Select(i => $"word{i:D4}").ToArray();
         var repo = RepoWithWords(wordset, words);
-        var service = new WordsetService(repo);
+        var service = new WordService(repo);
 
         var result = await service.GetWordsAsync(ShareCode, null, null);
 
-        Assert.Equal(WordsetService.DefaultPageSize, result.Words.Count);
+        Assert.Equal(WordService.DefaultPageSize, result.Words.Count);
         Assert.NotNull(result.NextCursor);
     }
 
@@ -145,7 +145,7 @@ public class GetWordsTests
     {
         var wordset = MakeWordset();
         var repo = new StubWordsetRepository(existing: wordset);
-        var service = new WordsetService(repo);
+        var service = new WordService(repo);
 
         var ex = await Assert.ThrowsAsync<ArgumentException>(
             () => service.GetWordsAsync(ShareCode, "not-valid-base64!!!", null));
@@ -158,7 +158,7 @@ public class GetWordsTests
     {
         var wordset = MakeWordset();
         var repo = RepoWithWords(wordset, "apple", "banana", "cherry", "date");
-        var service = new WordsetService(repo);
+        var service = new WordService(repo);
 
         var result = await service.GetWordsAsync(ShareCode, null, 2);
 
@@ -171,7 +171,7 @@ public class GetWordsTests
     {
         var wordset = MakeWordset();
         var repo = new StubWordsetRepository(existing: wordset);
-        var service = new WordsetService(repo);
+        var service = new WordService(repo);
 
         var result = await service.GetWordsAsync(ShareCode, null, null);
 

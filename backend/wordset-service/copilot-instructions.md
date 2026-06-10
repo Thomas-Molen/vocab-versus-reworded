@@ -2,7 +2,9 @@
 
 ## Service Overview
 
-.NET 10 ASP.NET Core minimal API service. Manages community wordlists stored in PostgreSQL with `pg_trgm` and LIST partitioning. The game-engine calls this service to validate player word submissions.
+.NET 10 ASP.NET Core service. Manages community wordlists stored in PostgreSQL with `pg_trgm` and LIST partitioning. Exposes:
+- **REST API** for wordset CRUD and word list management (HTTP/1.1, port 8080)
+- **gRPC service** (`WordsetGameService`) for gameplay hot-path operations: word validation and challenge letter generation (HTTP/2, port 8090)
 
 ## Build & Test
 
@@ -18,10 +20,10 @@ Requires PostgreSQL. Use `docker compose up postgres` from the repo root to star
 ## Architecture: Onion Layers
 
 ```
-wordset-service.Domain/        ← entities, IWordsetRepository, domain exceptions
-wordset-service.Application/   ← WordsetService (use cases), DTOs, mappers
-wordset-service.Infrastructure/← WordsetDbContext (EF Core + Npgsql), WordsetRepository
-wordset-service.API/           ← Program.cs, minimal API endpoints, DI wiring (startup project)
+wordset-service.Domain/        ← entities, IWordsetRepository, IWordGameRepository, IShareCodeCache, domain exceptions
+wordset-service.Application/   ← WordsetService, WordService, WordGameService (use cases), DTOs, mappers
+wordset-service.Infrastructure/← WordsetDbContext (EF Core + Npgsql), WordsetRepository, WordGameRepository, ShareCodeCache
+wordset-service.API/           ← Program.cs, minimal API endpoints, gRPC services, DI wiring (startup project)
 wordset-service.Tests/         ← xUnit unit tests only (Unit/ subfolder)
 ```
 
@@ -97,19 +99,111 @@ Words are managed via `PUT /wordsets/{id}/words` — a full-replacement endpoint
 
 ## Word Validation Logic
 
-1. Exact match: query the partition for `word = @word` (case-insensitive via stored lowercase)
-2. Fuzzy match (optional, when `fuzzy: true`): use `word % @word` with the `pg_trgm` similarity operator. Return the closest match and similarity score.
+Word validation is exposed via the gRPC `ValidateWord` RPC, not a REST endpoint.
 
-## Letter Combination Derivation
+**Excluded character normalisation** is applied to all validation before any comparison. Strip the excluded character list (same constant as GetChallenge: `[' ', '-']`) from the submitted word. Stored words are compared after the same strip. This means spaces are always ignored — "ice cream" submitted matches "icecream" stored.
 
-The `/wordsets/{id}/letter-combinations` endpoint returns all character sequences (1-3 chars) that appear as a substring in at least one word in the wordset. The game-engine uses this to generate solvable rounds.
+- **Exact match** (`fuzzy_tolerance = 0`): normalise input → PK lookup `(wordset_id, normalised_word)` — O(log n)
+- **Fuzzy match** (`fuzzy_tolerance > 0`): normalise input → use `pg_trgm` similarity as a pre-filter → apply `fuzzystrmatch.levenshtein()` to find the closest match within `fuzzy_tolerance`. The trigram GiST index does not accelerate Levenshtein directly, but trigram pre-filtering substantially reduces the candidate set.
 
-This query runs against the wordset's partition. It may be slow on very large wordlists — consider caching the result (invalidate on word add/remove) in Phase 2.
+`ValidateWordResponse.matched_word` is the stored word that was matched. Empty string when `valid = false`.
+
+## Challenge Letter Generation
+
+Challenge letters are exposed via the gRPC `GetChallenge` RPC.
+
+**Excluded characters**: a server-side constant list in `WordGameService` (initial: `[' ', '-']`). These characters are never returned as challenge letters and are stripped from candidate words before sampling. The list can be extended without a proto change.
+
+Strategy:
+1. Select a random word from the partition whose count of distinct non-excluded characters is ≥ `letter_count`. Retry (or return `FAILED_PRECONDITION`) if no qualifying word exists.
+2. Strip excluded characters from the selected word.
+3. Sample `letter_count` distinct characters at random from the remaining characters.
+4. Return them in **shuffled order** — not sorted, so the order gives no hint about the source word.
+
+For very large partitions (100k+ words), `ORDER BY random()` performs a sequential scan; a count-then-offset strategy or reservoir sampling may be preferable if profiling shows it is a bottleneck.
+
+## gRPC Service
+
+The gameplay hot-path operations are exposed as a gRPC service alongside the REST API.
+
+### Proto file
+
+Location: `Wordset.API/Protos/wordset_game.proto`
+
+```protobuf
+syntax = "proto3";
+option csharp_namespace = "Wordset.API.Protos";
+package wordset_game;
+
+service WordsetGameService {
+  rpc GetChallenge (GetChallengeRequest) returns (GetChallengeResponse);
+  rpc ValidateWord  (ValidateWordRequest)  returns (ValidateWordResponse);
+}
+
+message GetChallengeRequest {
+  string share_code   = 1;
+  int32  letter_count = 2;  // number of distinct challenge characters to return (e.g. 1–3)
+}
+
+message GetChallengeResponse {
+  string letters = 1;  // shuffled distinct non-excluded characters, e.g. "TRA"
+}
+
+message ValidateWordRequest {
+  string share_code      = 1;
+  string word            = 2;
+  int32  fuzzy_tolerance = 3;  // 0 = exact match only; >0 = Levenshtein distance allowed
+}
+
+message ValidateWordResponse {
+  bool   valid        = 1;
+  string matched_word = 2;  // the stored word that was matched; empty if valid = false
+}
+```
+
+### Onion layer placement
+
+| Concern | Layer | File |
+|---------|-------|------|
+| gRPC transport / message mapping | API | `Wordset.API/GrpcServices/WordsetGameGrpcService.cs` |
+| Challenge + validation business logic | Application | `Wordset.Application/Services/WordGameService.cs` |
+| Repository contract | Domain | `Wordset.Domain/Interfaces/IWordGameRepository.cs` |
+| Repository implementation | Infrastructure | `Wordset.Infrastructure/Repositories/WordGameRepository.cs` |
+
+`WordsetGameGrpcService` maps gRPC request messages to application service calls and maps responses back to Protobuf messages. It contains no business logic.
+
+### Port configuration
+
+Kestrel serves REST (HTTP/1.1) and gRPC (HTTP/2) on separate ports:
+- REST: port `8080` (existing)
+- gRPC: port `8090` (HTTP/2 cleartext — acceptable for internal service mesh)
+
+### NuGet packages
+
+Add `Grpc.AspNetCore` to `Wordset.API.csproj`. Regenerate gRPC stubs via `Grpc.Tools` — set `<Protobuf Include="Protos/wordset_game.proto" GrpcServices="Server" />` in the project file.
+
+### Conventions
+
+- The gRPC service uses `share_code` (the external identifier) as its input — consistent with the REST API. The service layer resolves `share_code → Guid` via a cache-backed lookup before calling `IWordGameRepository`.
+- All gRPC inputs are validated in the application layer (empty `share_code`, empty `word`, out-of-range values). Return appropriate gRPC status codes (`NOT_FOUND`, `INVALID_ARGUMENT`) rather than throwing unhandled exceptions.
+- Unit tests for `WordGameService` live in `Wordset.Tests/Unit/`. Stub `IWordGameRepository` manually — no mocking framework.
+
+### share_code → Guid cache
+
+Resolving `share_code → Guid` on every gRPC call would require a DB round-trip. An in-process cache eliminates this overhead:
+
+- **Interface**: `IShareCodeCache` (Domain layer) — `TryGet(shareCode)`, `Set(shareCode, id)` 
+- **Implementation**: `ShareCodeCache` (Infrastructure) — backed by `IMemoryCache` with a **5-minute sliding expiration**
+- **Population**: lazy on first lookup; a cache miss triggers `IWordsetRepository.GetByShareCodeAsync` and populates the entry
+- **Invalidation**: sliding expiration only — entries idle for 5 minutes are evicted automatically. No explicit eviction on wordset delete is needed (a deleted wordset returns `NOT_FOUND` at the DB level on the next cache miss)
+- **Registration**: singleton in DI, injected into both `WordGameRepository` (gRPC hot-path) and `WordsetRepository` (REST paths) so all service calls share one cache instance
 
 ## README
 
 Keep `README.md` in this directory up to date when:
 - Adding or removing REST endpoints (update the endpoint table)
+- Adding or removing gRPC RPCs (update the gRPC table)
 - Changing the database schema (update the schema block)
 - Changing partition naming conventions
 - Adding new configuration keys or environment variables
+- Changing the gRPC or REST port

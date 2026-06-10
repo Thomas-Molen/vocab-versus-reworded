@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Wordset.Domain.Interfaces;
 using Wordset.Infrastructure.Data;
@@ -15,7 +16,12 @@ public static class ServiceRegistration
         services.AddDbContext<WordsetDbContext>(options =>
             options.UseNpgsql(connectionString));
 
+        services.AddMemoryCache();
+        services.AddSingleton<IShareCodeCache, ShareCodeCache>();
+
         services.AddScoped<IWordsetRepository, WordsetRepository>();
+        services.AddScoped<IWordGameRepository, WordGameRepository>();
+
         return services;
     }
 }

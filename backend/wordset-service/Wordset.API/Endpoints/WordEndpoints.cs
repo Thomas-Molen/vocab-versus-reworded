@@ -33,7 +33,7 @@ public static class WordEndpoints
         string shareCode,
         [Description("Opaque pagination cursor from a previous response. Omit for the first page.")] string? cursor,
         [Description("Number of words per page.")] int? pageSize,
-        WordsetService service,
+        WordService service,
         CancellationToken ct)
     {
         try
@@ -49,7 +49,7 @@ public static class WordEndpoints
         {
             return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
-                ["pageSize"] = [$"pageSize must be between 1 and {WordsetService.MaxPageSize}."]
+                ["pageSize"] = [$"pageSize must be between 1 and {WordService.MaxPageSize}."]
             });
         }
         catch (ArgumentException ex) when (ex.ParamName == "cursor")
@@ -64,7 +64,7 @@ public static class WordEndpoints
     private static async Task<Results<Ok<WordsetDto>, NotFound, ValidationProblem>> ReplaceWords(
         string shareCode,
         ReplaceWordsRequest request,
-        WordsetService service,
+        WordService service,
         CancellationToken ct)
     {
         if (request.Words is null)

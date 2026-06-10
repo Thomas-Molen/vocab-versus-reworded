@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+option csharp_namespace = "Wordset.API.Protos";
+
+package wordset_game;
+
+service WordsetGameService {
+  rpc GetChallenge (GetChallengeRequest) returns (GetChallengeResponse);
+  rpc ValidateWord (ValidateWordRequest) returns (ValidateWordResponse);
+}
+
+message GetChallengeRequest {
+  string share_code   = 1;
+  int32  letter_count = 2;
+}
+
+message GetChallengeResponse {
+  // Each element is a single non-excluded character, in shuffled order, e.g. ["T", "R", "A"].
+  repeated string letters = 1;
+}
+
+message ValidateWordRequest {
+  string share_code      = 1;
+  string word            = 2;
+  // 0 = exact match only; >0 = Levenshtein distance allowed (spaces and hyphens stripped before comparison).
+  int32  fuzzy_tolerance = 3;
+}
+
+message ValidateWordResponse {
+  bool   valid        = 1;
+  // The stored word that was matched. Empty string when valid = false.
+  string matched_word = 2;
+}

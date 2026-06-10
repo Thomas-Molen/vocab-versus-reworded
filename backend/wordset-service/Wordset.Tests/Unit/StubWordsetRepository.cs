@@ -14,9 +14,13 @@ internal class StubWordsetRepository(
     private readonly Dictionary<string, int?> _words = [];
 
     public int ShareCodeExistsCallCount { get; private set; }
+    public int GetByShareCodeCallCount { get; private set; }
 
     public Task<Domain.Entities.Wordset?> GetByShareCodeAsync(string shareCode, CancellationToken ct = default)
-        => Task.FromResult(_store.FirstOrDefault(w => w.ShareCode == shareCode));
+    {
+        GetByShareCodeCallCount++;
+        return Task.FromResult(_store.FirstOrDefault(w => w.ShareCode == shareCode));
+    }
 
     public Task<Domain.Entities.Wordset?> GetByIdAsync(Guid id, CancellationToken ct = default)
         => Task.FromResult(_store.FirstOrDefault(w => w.Id == id));

@@ -16,7 +16,7 @@ public class ReplaceWordsTests
     public async Task ReplaceWordsAsync_ThrowsWordsetNotFoundException_WhenWordsetDoesNotExist()
     {
         var repo = new StubWordsetRepository();
-        var service = new WordsetService(repo);
+        var service = new WordService(repo);
 
         await Assert.ThrowsAsync<WordsetNotFoundException>(
             () => service.ReplaceWordsAsync("ZZZZZZ", new ReplaceWordsRequest(["apple"])));
@@ -27,7 +27,7 @@ public class ReplaceWordsTests
     {
         var wordset = MakeWordset();
         var repo = new StubWordsetRepository(existing: wordset);
-        var service = new WordsetService(repo);
+        var service = new WordService(repo);
 
         await service.ReplaceWordsAsync(ShareCode, new ReplaceWordsRequest(["Apple", "BANANA", "Cherry"]));
 
@@ -40,7 +40,7 @@ public class ReplaceWordsTests
     {
         var wordset = MakeWordset();
         var repo = new StubWordsetRepository(existing: wordset);
-        var service = new WordsetService(repo);
+        var service = new WordService(repo);
 
         var result = await service.ReplaceWordsAsync(ShareCode, new ReplaceWordsRequest(["  apple  ", " banana "]));
 
@@ -52,7 +52,7 @@ public class ReplaceWordsTests
     {
         var wordset = MakeWordset();
         var repo = new StubWordsetRepository(existing: wordset);
-        var service = new WordsetService(repo);
+        var service = new WordService(repo);
 
         var result = await service.ReplaceWordsAsync(ShareCode, new ReplaceWordsRequest(["apple", "Apple", "APPLE"]));
 
@@ -64,7 +64,7 @@ public class ReplaceWordsTests
     {
         var wordset = MakeWordset();
         var repo = new StubWordsetRepository(existing: wordset);
-        var service = new WordsetService(repo);
+        var service = new WordService(repo);
 
         var result = await service.ReplaceWordsAsync(ShareCode, new ReplaceWordsRequest(["apple", "", "  ", "banana"]));
 
@@ -76,7 +76,7 @@ public class ReplaceWordsTests
     {
         var wordset = MakeWordset();
         var repo = new StubWordsetRepository(existing: wordset);
-        var service = new WordsetService(repo);
+        var service = new WordService(repo);
 
         await service.ReplaceWordsAsync(ShareCode, new ReplaceWordsRequest(["apple"]));
 
@@ -89,7 +89,7 @@ public class ReplaceWordsTests
     {
         var wordset = MakeWordset();
         var repo = new StubWordsetRepository(existing: wordset);
-        var service = new WordsetService(repo);
+        var service = new WordService(repo);
 
         // First replace — apple gets rank 0 (new word)
         await service.ReplaceWordsAsync(ShareCode, new ReplaceWordsRequest(["apple", "banana"]));
@@ -114,7 +114,7 @@ public class ReplaceWordsTests
     {
         var wordset = MakeWordset();
         var repo = new StubWordsetRepository(existing: wordset);
-        var service = new WordsetService(repo);
+        var service = new WordService(repo);
 
         await service.ReplaceWordsAsync(ShareCode, new ReplaceWordsRequest(["apple", "banana"]));
         var result = await service.ReplaceWordsAsync(ShareCode, new ReplaceWordsRequest([]));

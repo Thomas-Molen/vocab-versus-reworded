@@ -1,0 +1,67 @@
+# ─── .NET ────────────────────────────────────────────────────────────────────
+bin/
+obj/
+*.user
+*.suo
+.vs/
+*.swp
+*.sln.docstates
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# EF Core migrations bundle
+efbundle
+
+# NuGet
+*.nupkg
+*.snupkg
+.nuget/
+packages/
+nuget.config
+
+# Secrets
+appsettings.*.json
+!appsettings.json
+!appsettings.Development.json
+
+# Publish output
+publish/
+**/publish/
+
+# dotnet test
+TestResults/
+*.trx
+*.coverage
+*.coveragexml
+
+# ─── Node / Vite / React ────────────────────────────────────────────────────
+node_modules/
+dist/
+.cache/
+.parcel-cache/
+*.local
+
+# Vite env files with secrets
+.env*.local
+
+# ─── Docker ──────────────────────────────────────────────────────────────────
+# Keep docker-compose.yml but ignore override files with local secrets
+docker-compose.override.yml
+
+# ─── OS ──────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─── IDEs ────────────────────────────────────────────────────────────────────
+.idea/
+*.iml
+# Only ignore user-specific VS Code settings; share launch.json and tasks.json
+.vscode/settings.json
+.vscode/*.code-snippets
+*.code-workspace
+
+# ─── Logs ────────────────────────────────────────────────────────────────────
+*.log
+logs/

@@ -15,6 +15,18 @@ dotnet test --filter "FullyQualifiedName~SomeTest"   # single test
 
 Requires PostgreSQL. Use `docker compose up postgres` from the repo root to start only the database.
 
+## Architecture: Onion Layers
+
+```
+wordset-service.Domain/        ← entities, IWordsetRepository, domain exceptions
+wordset-service.Application/   ← WordsetService (use cases), DTOs, mappers
+wordset-service.Infrastructure/← WordsetDbContext (EF Core + Npgsql), WordsetRepository
+wordset-service.API/           ← Program.cs, minimal API endpoints, DI wiring (startup project)
+wordset-service.Tests/         ← xUnit unit tests only (Unit/ subfolder)
+```
+
+`Domain` has no project dependencies. `Infrastructure` and `Application` depend on `Domain`. `API` depends on `Application` + `Infrastructure`.
+
 ## Database: Partitioned Words Table
 
 The `words` table is **LIST-partitioned by `wordset_id`**. Never query the parent `words` table directly in application code — always query the partition (which happens automatically when you filter by `wordset_id`).
@@ -45,14 +57,43 @@ CREATE INDEX ON words_<id> USING gist (word gist_trgm_ops);
 
 Helper: `"words_" + wordsetId.ToString("N")` (the `"N"` format specifier removes hyphens in .NET).
 
+## Build Configuration
+
+Shared build properties (`TargetFramework`, `Nullable`, `ImplicitUsings`) live in `Directory.Build.props` at the service root — do not repeat them in individual `.csproj` files.
+
+## Suppressing Warnings
+
+Suppress warnings at the call site with `#pragma warning disable <code>` (not globally in `.csproj`). Always include a one-line comment explaining why the suppression is justified:
+
+```csharp
+// EF1002: values are Guid-derived (hex + hyphens only) — no SQL injection surface.
+#pragma warning disable EF1002
+await db.Database.ExecuteSqlRawAsync($"...", ct);
+#pragma warning restore EF1002
+```
+
 ## Conventions
 
-- Minimal APIs (`MapGet`, `MapPost`, `MapDelete`) — no controllers
+- Minimal APIs (`MapGet`, `MapPost`, `MapDelete`, `MapPatch`, `MapPut`) in `API` project — no controllers
+- All wordset routes use `{shareCode}` (6-char string) as the public identifier — never `{id:guid}` in URLs. The Guid `id` is the internal DB key only.
+- **OpenAPI documentation lives in the endpoint registration**, not in the README. Use `.WithSummary("...")` and `.WithDescription("...")` on each `MapGet/Post/etc` call, and `[Description("...")]` (from `System.ComponentModel`) on individual handler parameters. The README endpoint table is a quick reference only — do not add prose descriptions of endpoints there.
 - EF Core for `wordsets` CRUD; raw SQL for all partition DDL
 - Words are **always stored and compared lowercase** — normalise on input
-- `frequency_rank`: nullable int, populated at import time only. Never written during gameplay. Lower value = more commonly used word.
+- `frequency_rank`: nullable int, populated at import time only. Never written during gameplay.
+- `wordsets.name` is **not unique** — multiple wordsets can share a name. `share_code` is the unique human-readable discriminator.
+- `share_code`: 6-character uppercase alphanumeric (charset: `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`), generated at creation, immutable, DB unique constraint.
+- `words` table composite PK is `(wordset_id, word)` — no separate `id` column
 - `IOptions<T>` for all configuration — no raw `IConfiguration` access in service classes
 - `CancellationToken` threaded through all async call chains
+
+## Word Management
+
+Words are managed via `PUT /wordsets/{id}/words` — a full-replacement endpoint, not individual add/remove operations. The request body is `{ "words": ["word1", "word2", ...] }`.
+
+- Words are normalised to lowercase and deduplicated before storage
+- Existing `frequency_rank` is preserved for words that survive the replacement; new words receive `frequency_rank = 0`
+- The endpoint is designed for large batches (thousands of words) — internally uses Npgsql binary COPY for O(n) insert performance
+- Returns the updated `WordsetDto` with the new `wordCount`
 
 ## Word Validation Logic
 

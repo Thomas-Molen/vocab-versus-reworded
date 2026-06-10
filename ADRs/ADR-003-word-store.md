@@ -27,18 +27,18 @@ Use **PostgreSQL** with the `pg_trgm` extension and **LIST partitioning by `word
 ```sql
 CREATE TABLE wordsets (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name        TEXT NOT NULL UNIQUE,
+    name        TEXT NOT NULL,             -- NOT unique; multiple wordsets can share a name
+    share_code  CHAR(6) NOT NULL UNIQUE,   -- e.g. 'XK7P2M'; human-readable sharing identifier
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- Parent partitioned table — never queried directly
 CREATE TABLE words (
-    id              UUID NOT NULL DEFAULT gen_random_uuid(),
     wordset_id      UUID NOT NULL REFERENCES wordsets(id),
     word            TEXT NOT NULL,       -- stored lowercase
     frequency_rank  INT,                 -- optional; lower = more common
-    PRIMARY KEY (wordset_id, word)
+    PRIMARY KEY (wordset_id, word)       -- no separate id column
 ) PARTITION BY LIST (wordset_id);
 
 -- Example partition (created dynamically when a wordset is created):

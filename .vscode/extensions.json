@@ -1,0 +1,10 @@
+{
+    "recommendations": [
+        // .NET development
+        "ms-dotnettools.csdevkit",
+        // WSL2 integration — open VS Code connected to the WSL2 filesystem and terminal
+        "ms-vscode-remote.remote-wsl",
+        // Docker container management and docker-compose support
+        "ms-azuretools.vscode-docker"
+    ]
+}
